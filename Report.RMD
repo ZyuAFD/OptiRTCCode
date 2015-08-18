@@ -1,0 +1,293 @@
+---
+title: "Report of OptiRTC"
+author: "Ziwen Yu"
+output: html_document
+---
+
+### Overview
+This is the report of the OptiRTC product development test. It uses the 5-miniute-interval soil moisture observation and precipitation data to analyze the green roof's hydrologic performance in managing storm water. 
+
+```{r Environment options and data loading, echo=FALSE,warning=FALSE,message=FALSE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(rjson, 
+               lubridate, 
+               dplyr,
+               tidyr,
+               magrittr,
+               zoo,
+               pander,
+               ggplot2,
+               scales)
+
+#Constants
+height=6 #in
+in2ft=1/12
+Ft2_2_m3=0.02831685
+Po=0.25
+arae=1260 #sqft
+Volumn=arae*height*in2ft*Ft2_2_m3  #m3
+
+
+#Read in Data
+Jsonfile='https://raw.githubusercontent.com/OptiRTC/Product-Dev-Test/master/GreenRoofStorms.json'
+
+JsonData=Jsonfile %>% 
+      readLines() %>%
+      paste0() %>%
+      fromJSON()
+
+Data=do.call(rbind, JsonData)%>%
+      as.data.frame() %>%
+      lapply(.,unlist)%>%
+      data.frame(.,stringsAsFactors =F) %>%
+      mutate(Time_UTC=ymd_hms(timeValue_UTC)) %>%
+      arrange(Time_UTC) 
+```
+
+### Data Cleaning
+The data contains `r length(JsonData)` rows of data with `r length(JsonData[[1]])` columns of information about time, rain amount and soil moisture reading from four probes. The time span read from the data is `r (with_tz(min(Data$Time_UTC),'UTC') %--% with_tz(max(Data$Time_UTC),'UTC'))/years(1)` years. The distinct year of the time data is listed below:
+```{r Frequent of Years,echo=FALSE}
+YearFreq=Data$Time_UTC %>%
+      year() %>%
+      table() %>%
+      data.frame() 
+
+colnames(YearFreq)=c('Year','Freq')
+
+pander(YearFreq, split.cells = 30, split.table = Inf)
+```
+The year 0001 is obviously a invalid date record for an observation data. The 8 rows of data with time in year 0001 is removed from the further analysis.
+
+```{r Date cleaning,echo=FALSE}
+#remove data with year of 0001
+Data_Clean=Data %>%
+      mutate(Year=year(Time_UTC)) %>%
+      filter(Year==2015) %>%
+      select(-Year,-timeValue_UTC) %>%
+      mutate(ID=as.integer(row.names(.)))
+```
+After the cleaning of date part, the time period of the remaining data spans `r as.character(min(Data_Clean$Time_UTC) %--% max(Data_Clean$Time_UTC))`.
+
+### Data Exploration
+```{r Plot Data,echo=FALSE}
+
+Plot_theme = theme_bw()+
+      theme(plot.title = element_text(size = 12)
+            ,axis.title.x = element_text(size=10)
+            ,axis.title.y = element_text(size=10)
+            ,axis.text.x = element_text(size=8,angle = 45, hjust = 1)
+            ,axis.text.y = element_text(size=8)            
+      )
+
+# Plot Soil Moisture
+ggplot(data=Data_Clean)+
+      geom_line(aes(x=Time_UTC,y=NorthCentralSoilMoisture_m3_per_m3,color='NorthCentral'),size=1)+
+      geom_line(aes(x=Time_UTC,y=SouthCentralSoilMoisture_m3_per_m3,color='SouthCentral'),size=1)+
+      geom_line(aes(x=Time_UTC,y=NorthSoilMoisture_m3_per_m3,color='North'),size=1)+
+      geom_line(aes(x=Time_UTC,y=SouthSoilMoisture_m3_per_m3,color='South'),size=1)+
+      scale_y_continuous(labels = percent_format())+
+      labs(y="Soil Moisture",x="",title="Soil Moisture Observations")+
+      Plot_theme+
+      theme(legend.position="bottom", 
+            legend.direction="horizontal",
+            legend.title = element_blank())
+
+# Plot Rain
+ggplot(data=Data_Clean)+
+      geom_bar(aes(x=Time_UTC,y=Rain_in,fill='Rain'),stat="identity")+
+      labs(y="Rain (in)",x="Time",title='Rain Observations')+
+      Plot_theme+
+      theme(legend.position="none")
+      
+```
+
+
+### Rain Event Categorization
+In defining a rain event, an inter-event dry period is assumed as **4 hours**. In another word, two rain events separated by a dry period no longer than 4 hours are considered one.
+```{r Rain Event Define, echo=FALSE,warning=FALSE,message=FALSE}
+#---------------Get precipitation events
+#select only precipitation hours
+# Add previous and post hours to each row
+# Calculate the interval previous and post
+# Inter-event period =4 hours 
+Precip=Data_Clean %>%
+      filter(Rain_in>0) %>%
+      select(Time_UTC,Rain_in,ID) %>%
+      arrange(Time_UTC) %>%
+      mutate(Pre=lag(with_tz(Time_UTC,'UTC'),1),
+             Post=lead(with_tz(Time_UTC,'UTC'),1))
+
+# add the boundary dry period longer than 4 hours 
+# at the beginning and end of rain hours series
+EndRw=dim(Precip)[1]
+Precip$Pre[1]=with_tz(Precip$Time_UTC[1]-hours(10),'UTC')
+Precip$Post[EndRw]=with_tz(Precip$Time_UTC[EndRw]+hours(10),'UTC')
+
+Precip %<>%
+      mutate(PreInt=Pre %--% Time_UTC,
+             PostInt=Time_UTC %--% Post) %>%
+      mutate(PreInt=PreInt/hours(1),
+             PostInt=PostInt/hours(1)) 
+
+#  Get the start and end of a rain period
+EventSt=Precip %>%
+      filter(PreInt>4) %>%
+      select(ID)
+EventEd=Precip %>%
+      filter(PostInt>4) %>%
+      select(ID)
+Event=data.frame(Start=EventSt$ID,End=EventEd$ID)
+Event %<>%
+      mutate(Duration=Data_Clean$Time_UTC[Start] %--% Data_Clean$Time_UTC[End]) %>%
+      mutate(Length_min=Duration/minutes(1)+5) %>%
+      mutate(EvtID=as.integer(row.names(.))) %>%
+      cbind(.,EvtRain_in=mapply(function(x,y) sum(Data_Clean$Rain_in[x:y]),Event$Start,Event$End))
+
+pander(Event %>% 
+             select(EvtID,Duration,Length_min,EvtRain_in) %>% 
+             mutate(Duration=as.character(Duration)), split.cells = 30, split.table = Inf)
+
+
+# observation realted to rain events
+Event_Ob=apply(Event[,c(1,2,5)],1,function(x) Data_Clean %>% filter(ID>=x[1],ID<=x[2]) %>% mutate(EvtID=x[3],EvtSt=x[1]) %>% select(Time_UTC,EvtID))
+
+
+ggplot(data=Data_Clean %>% left_join(.,do.call(rbind,Event_Ob)))+
+      geom_bar(aes(x=Time_UTC,y=Rain_in,fill=factor(EvtID)),stat="identity")+
+      labs(y="Rain (in)",x="",title='Rain Event Category',fill='Event ID')+
+      Plot_theme+
+      theme(legend.position="bottom", 
+            legend.direction="horizontal")
+```
+
+
+### Probe Reaction Lag Determination
+The observation of soil moisture bears a vibration for all probes. To determine the reaction to a  rain event, a threshold of moisture increase should be pre-defined for each probe from there observations unrelated to any rain event. In this report, the observations before `r as.character(min(Precip$Time_UTC))` are used to conduct this esitmation. 
+These thresholds are listed below:
+```{r Reading Vibration,echo=FALSE}
+
+#Add delta moisture for all probes
+
+Data_Clean %<>%
+      mutate(NorthCentral_lag=lag(NorthCentralSoilMoisture_m3_per_m3,1),
+             SouthCentral_lag=lag(SouthCentralSoilMoisture_m3_per_m3,1),
+             North_lag=lag(NorthSoilMoisture_m3_per_m3,1),
+             South_lag=lag(SouthSoilMoisture_m3_per_m3,1)) %>%
+      mutate(NorthCentral_Delta=NorthCentralSoilMoisture_m3_per_m3-NorthCentral_lag,
+             SouthCentral_Delta=SouthCentralSoilMoisture_m3_per_m3-SouthCentral_lag,
+             North_Delta=NorthSoilMoisture_m3_per_m3-North_lag,
+             South_Delta=SouthSoilMoisture_m3_per_m3-South_lag)
+
+
+# Get threshold increase of moistures to determine 
+# the reaction to rain
+Event_unrelated=Data_Clean[ Data_Clean$ID < Event$Start[1], ]
+Moist_threshold=data.frame(NorthCentral=max(Event_unrelated$NorthCentral_Delta[!is.na(Event_unrelated$NorthCentral_Delta)])
+                           ,SouthCentral=max(Event_unrelated$SouthCentral_Delta[!is.na(Event_unrelated$SouthCentral_Delta)])
+                           ,North=max(Event_unrelated$North_Delta[!is.na(Event_unrelated$North_Delta)])
+                           ,South=max(Event_unrelated$South_Delta[!is.na(Event_unrelated$South_Delta)]))
+
+pander(Moist_threshold, split.cells = 30, split.table = Inf)
+```
+
+The reaction lags of all probes for all rain events are tabulated below:
+```{r Event react lag,echo=FALSE}
+# observation realted to rain events
+Event_Ob_delta_Moi=apply(Event[,c(1,2,5)],1,function(x) Data_Clean %>% filter(ID>=x[1],ID<=x[2]) %>% mutate(EvtID=x[3],EvtSt=x[1]))
+
+#------------------ Start of moisture change
+#Reaction lag time min
+React_lag=function(x)
+{
+      #NorthCentral
+      NorthCentral_React_lag_min=x %>%
+            filter(NorthCentral_Delta>Moist_threshold$NorthCentral) %>%
+            mutate(React_lag_min=(ID-EvtSt)*5) %>%
+            select(React_lag_min) %>%
+            min()
+      
+      #SouthCentral
+      SouthCentral_React_lag_min=x %>%
+            filter(SouthCentral_Delta>Moist_threshold$SouthCentral) %>%
+            mutate(React_lag_min=(ID-EvtSt)*5) %>%
+            select(React_lag_min) %>%
+            min()
+      
+      #North
+      North_React_lag_min=x %>%
+            filter(North_Delta>Moist_threshold$North) %>%
+            mutate(React_lag_min=(ID-EvtSt)*5) %>%
+            select(React_lag_min) %>%
+            min()
+      
+      #South
+      South_React_lag_min=x %>%
+            filter(South_Delta>Moist_threshold$South) %>%
+            mutate(React_lag_min=(ID-EvtSt)*5) %>%
+            select(React_lag_min) %>%
+            min()
+      
+      data.frame(NorthCentral_React_lag_min,
+                 SouthCentral_React_lag_min,
+                 North_React_lag_min,
+                 South_React_lag_min)
+}
+
+EventReact=Event %>% cbind(do.call(rbind,lapply(Event_Ob_delta_Moi,React_lag)))
+
+pander(EventReact %>% select(EvtID,
+                             NorthCentral_React_lag_min,
+                             SouthCentral_React_lag_min,
+                             North_React_lag_min,
+                             South_React_lag_min), split.cells = 30, split.table = Inf)
+```
+
+### Stored Water Estimation
+Using the benchmarked soil moisture increase in the last section, the stored water in 15 miniutes is calculated and plotted.
+```{r 15min stored water,echo=FALSE,warning=FALSE,message=FALSE,results='hide'}
+RunningSumWater= function(x)
+{
+      x %>%
+            #select valid moisture increase reaction for all probes
+            mutate(NorthCentral_trueincrease=NorthCentral_Delta*(NorthCentral_Delta>Moist_threshold$NorthCentral),
+                   SouthCentral_trueincrease=SouthCentral_Delta*(SouthCentral_Delta>Moist_threshold$SouthCentral),
+                   North_trueincrease=North_Delta*(North_Delta>Moist_threshold$North),
+                   South_trueincrease=South_Delta*(South_Delta>Moist_threshold$South)) %>%
+            #Average the moisture increase
+            mutate(AvgMoist_increase=(NorthCentral_trueincrease+
+                                            SouthCentral_trueincrease+
+                                            North_trueincrease+
+                                            South_trueincrease)/4) %>%
+            #Calculate water volumn m3
+            mutate(stored_water_m3=AvgMoist_increase*Volumn) %>%
+            #Running sum of 15 min
+            mutate(stored_water_m3_15min=rollsum(x=stored_water_m3,k=3,align = "right",fill=NA)) %>%
+            select(Time_UTC,Rain_in,stored_water_m3_15min,EvtID)
+}
+
+Stored_water_15min_ls=lapply(Event_Ob_delta_Moi,RunningSumWater)
+
+PlotStoredwater=function(x)
+      {      
+      ggplot(data=x)+
+            geom_line(aes(x=Time_UTC,y=stored_water_m3_15min,color='Stored Water in 15 miniutes (m3)'))+
+            geom_bar(aes(x=Time_UTC,y=Rain_in,fill='Rain (in)'),stat="identity")+
+            labs(x='',y='',
+                 title=paste('Rain Event ID:',unique(x$EvtID)))+
+            scale_x_datetime(labels = date_format("%Y-%m-%d %H:%M"))+
+            scale_color_manual(values=c('Stored Water in 15 miniutes (m3)'="blue4"))+
+            theme_bw()+
+            theme(plot.title = element_text(size = 12)
+            ,axis.title.x = element_text(size=10)
+            ,axis.title.y = element_text(size=10)
+            ,axis.text.x = element_text(size=8)
+            ,axis.text.y = element_text(size=8)  
+            ,legend.position="bottom", 
+                  legend.direction="horizontal",
+                  legend.title = element_blank()
+      )
+      }
+
+lapply(Stored_water_15min_ls,PlotStoredwater)
+
+```
