@@ -8,7 +8,7 @@ output: html_document
 This is the report of the OptiRTC product development test. It uses the 5-miniute-interval soil moisture observation and precipitation data to analyze the green roof's hydrologic performance in managing storm water. 
 
 ```{r Environment options and data loading, echo=FALSE,warning=FALSE,message=FALSE}
-if (!require("pacman")) install.packages("pacman")
+if (!require("pacman")) install.packages("pacman", repos="http://cran.rstudio.com/")
 pacman::p_load(rjson, 
                lubridate, 
                dplyr,
@@ -29,8 +29,9 @@ Volumn=arae*height*in2ft*Ft2_2_m3  #m3
 
 
 #Read in Data
-Jsonfile='https://raw.githubusercontent.com/OptiRTC/Product-Dev-Test/master/GreenRoofStorms.json'
+#Jsonfile='https://raw.githubusercontent.com/OptiRTC/Product-Dev-Test/master/GreenRoofStorms.json'
 
+#Jsonfile='C:\\Users\\Ziwen.Yu\\Documents\\Class\\OptiRTC\\GreenRoofStorms.json'
 JsonData=Jsonfile %>% 
       readLines() %>%
       paste0() %>%
