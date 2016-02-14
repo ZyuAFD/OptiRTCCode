@@ -18,13 +18,23 @@ colnames(Raw_dt)=c('Time_UTC',
 
 Raw_dt %<>% 
   mutate(Time_Stamp=paste0(substr(Time_UTC,1,15),'0:00'))  %>% 
-  mutate(Time_Stamp=ymd_hms(Time_Stamp),Time=ymd_hms(Time_UTC)) %>% 
+  mutate(Time_Stamp=ymd_hms(Time_Stamp),Time=ymd_hms(Time_UTC))
+
+#Get the time series with 10 min interval
+Raw_dt %>% 
   filter(!is.na(SoilM)) %>% 
-  ggplot()
+  select(Time_Stamp) %>% 
+  summarize(min(Time_Stamp),max(Time_Stamp)) -> Dt_rng
+
+colnames(Dt_rng)=c('MinDt','MaxDt')
   
-  Raw_dt %>% 
-  select(-Time_UTC) %>% 
-  top_n(20)
+Tm_srs=seq(
+  from=Dt_rng$MinDt[1],
+  to=Dt_rng$MaxDt[1],
+  by=600
+) 
+  
+
 
 
 #question about rain intensity unit
