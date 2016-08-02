@@ -1,15 +1,15 @@
-library(data.table)
-library(lubridate)
-library(dplyr)
-library(magrittr)
-library(tidyr)
-library(ggplot2)
-library(scales)
-library(zoo)
-library(Coalesce)
-library(knitr)
 
-
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(data.table, 
+                lubridate, 
+                dplyr,
+                magrittr,
+                tidyr,
+                ggplot2,
+                scales,
+                zoo,
+                Coalesce,
+                knitr)
 
 
 #  Plot Theme ------------------
