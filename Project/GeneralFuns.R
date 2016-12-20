@@ -9,7 +9,7 @@ Round_5min=function(Datetime)
       as.numeric /5)*5
   
   
-  return(as.POSIXct((as.Date(Datetime)+minutes(mins)), 
+  return(as.POSIXct((as.Date(Datetime)+lubridate::minutes(mins)), 
                     format = "%Y-%m-%d %H:%M:%S")
   )
   
