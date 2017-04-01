@@ -22,6 +22,7 @@ Plot_theme=theme_bw()+
         plot.title=element_text(size=18,
                                 face="bold"),
         legend.position="bottom",
+        legend.title=element_text(size=14),
         legend.text=element_text(size=14, 
                                  color="grey12", 
                                  face="bold"),
@@ -29,5 +30,4 @@ Plot_theme=theme_bw()+
                                     face='bold'),
         strip.text.x = element_text(size = 12,
                                     face='bold'),
-        axis.text.x = element_text(angle = 45, hjust = 1),
-        axis.title.x= element_text(size=0))
+        axis.text.x = element_text(angle = 45, hjust = 1))
