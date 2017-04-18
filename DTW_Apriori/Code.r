@@ -274,39 +274,65 @@ TrueEvtPtn=function(Evt_Charas)
 
 # Application
 
-Dt_5min_cure=Regular_5min(GoldaMeir_Dt_Feb2017 %>% 
-                              select(Time_Stamp,Temp_F,Inst_Rain_in,Est_SouthCtr_SoilM) %>% 
-                              rename(Inst_Rain=Inst_Rain_in,SoilM=Est_SouthCtr_SoilM) %>% 
-                              filter(Time_Stamp<ymd('2016-1-06'))) %>% 
-    Labeling_Evts(.)
 
+Patn_Match=function(dt)
+    #Time_Stamp
+    #Temp_F
+    #Inst_Rain
+    #SoilM
+{
+    Dt_5min_cure=Regular_5min(dt) %>% 
+        Labeling_Evts(.)
+    
+    
+    Dt_5min_cure %>%
+        select(Evt_n,SoilM) %>% 
+        filter(!is.na(SoilM)) %>% 
+        group_by(Evt_n) %>% 
+        do(vals=.$SoilM) %>% 
+        select(vals) %>% 
+        .$vals->Tslist
+    
+    
+    Dt_5min_cure %>%
+        filter(!is.na(SoilM)) %>% 
+        mutate(Rain_Tm=ifelse(Inst_Rain>0,Time,NA)) %>% 
+        group_by(Evt_n) %>% 
+        mutate(DryPd_hr=as.numeric(max(Time,na.rm=T)-max(Rain_Tm,na.rm=T))/3600,
+               RainPd_hr=(max(Rain_Tm,na.rm=T)-as.numeric(min(Time,na.rm=T)))/3600) %>% 
+        summarise(DryPd_hr=max(DryPd_hr),
+                  RainPd_hr=max(RainPd_hr),
+                  Dur_hr=n()/12,
+                  St=min(Time),
+                  AvgT=mean(Temp_F),
+                  EvtP=sum(Inst_Rain,na.rm=T)
+        ) %>% 
+        filter(Evt_n>0) %>% 
+        mutate(Jday=round(as.numeric(St-ymd(year(St)*10000+101),unit='days'))) %>% 
+        select(-St)-> Evt_Chara
+    
+    
+    Dist.df=EvtDist_Cal(Tslist)
+    TruePtn=TrueEvtPtn(Evt_Chara)
+    return(TruePtn)
+}
 
-Dt_5min_cure %>%
-    select(Evt_n,SoilM) %>% 
-    filter(!is.na(SoilM)) %>% 
-    group_by(Evt_n) %>% 
-    do(vals=.$SoilM) %>% 
-    select(vals) %>% 
-    .$vals->Tslist
-
-
-Dt_5min_cure %>%
-    filter(!is.na(SoilM)) %>% 
-    mutate(Rain_Tm=ifelse(Inst_Rain>0,Time,NA)) %>% 
-    group_by(Evt_n) %>% 
-    mutate(DryPd_hr=as.numeric(max(Time,na.rm=T)-max(Rain_Tm,na.rm=T))/3600,
-           RainPd_hr=(max(Rain_Tm,na.rm=T)-as.numeric(min(Time,na.rm=T)))/3600) %>% 
-    summarise(DryPd_hr=max(DryPd_hr),
-              RainPd_hr=max(RainPd_hr),
-              Dur_hr=n()/12,
-              St=min(Time),
-              AvgT=mean(Temp_F),
-              EvtP=sum(Inst_Rain,na.rm=T)
-    ) %>% 
-    filter(Evt_n>0) %>% 
-    mutate(Jday=round(as.numeric(St-ymd(year(St)*10000+101),unit='days'))) %>% 
-    select(-St)-> Evt_Chara
-
-
-Dist.df=EvtDist_Cal(Tslist)
-TrueEvtPtn(Evt_Chara)
+                   
+                   
+# A tibble: 118,502 × 4
+#            Time_Stamp Temp_F Inst_Rain      SoilM
+#                <dttm>  <dbl>     <dbl>      <dbl>
+#1  2015-08-21 19:34:00 71.100         0        NaN
+#2  2015-08-21 19:37:00    NaN       NaN        NaN
+#3  2015-08-21 19:39:00 70.585         0        NaN
+#4  2015-08-21 19:40:00    NaN       NaN 0.04918874
+#5  2015-08-21 19:42:00    NaN       NaN        NaN
+#6  2015-08-21 19:44:00 70.070         0        NaN
+#7  2015-08-21 19:45:00    NaN       NaN 0.04915797
+                   
+                   
+GoldaMeir_Dt_Feb2017 %>% 
+    select(Time_Stamp,Temp_F,Inst_Rain_in,Est_SouthCtr_SoilM) %>% 
+    rename(Inst_Rain=Inst_Rain_in,SoilM=Est_SouthCtr_SoilM) %>% 
+    filter(Time_Stamp<ymd('2016-1-06'))%>% 
+    Patn_Match
