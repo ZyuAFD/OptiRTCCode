@@ -2,13 +2,11 @@
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(data.table, 
                 lubridate, 
-                dplyr,
                 magrittr,
-                tidyr,
                 ggplot2,
                 scales,
                 zoo,
-                Coalesce,
+                tidyverse,
                 knitr,
               RcppRoll)
 
